@@ -50,8 +50,8 @@ MAXFIYLIK QOIDASI:
 
 AVAILABLE_MODELS = {
     "flash": {
-        "id": "gemini-3.8-flash",
-        "name": "⚡ Gemini 3.8 Flash (Juda tez)",
+        "id": "gemini-3.6-flash",
+        "name": "⚡ Gemini 3.6 Flash (Tezkor va barqaror)",
         "desc": "Tezkor suhbat, namoz, budilnik va oddiy savollar uchun",
     },
     "hydrogen": {
@@ -59,12 +59,14 @@ AVAILABLE_MODELS = {
         "name": "🧠 Gemini 4 Hydrogen (Chuqur aql)",
         "desc": "Murakkab dasturlash, elektronika, fizika va tahlil uchun",
     },
-    "pro": {
-        "id": "gemini-pro-latest",
-        "name": "💎 Gemini Pro (Balansli)",
-        "desc": "Kuchli aql va barqaror natijalar uchun",
+    "lite": {
+        "id": "gemini-3.5-flash-lite",
+        "name": "🪶 Gemini 3.5 Flash Lite (Yengil va tez)",
+        "desc": "Eng yengil va chaqqon model",
     },
 }
+
+FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-4-hydrogen", "gemini-3.5-flash-lite"]
 
 SYSTEM_INSTRUCTION = (
     "Sen Sanjarbek Xabibullayevning shaxsiy Telegram AI yordamchisisan. "
@@ -142,15 +144,29 @@ def _format_time_context() -> str:
 
 
 async def generate_response(user_id: int, message: str) -> str:
-    """Gemini'dan javob olish"""
+    """Gemini'dan javob olish (avtomatik kvota fallback bilan)"""
+    time_ctx = _format_time_context()
+    prompt = f"{time_ctx}\nFoydalanuvchi: {message}"
+
     try:
         chat = get_chat(user_id)
-        time_ctx = _format_time_context()
-        prompt = f"{time_ctx}\nFoydalanuvchi: {message}"
         response = await chat.send_message_async(prompt)
         return response.text
     except Exception as e:
-        return f"❌ Xatolik yuz berdi: {str(e)}"
+        err_msg = str(e)
+        if "429" in err_msg or "Quota" in err_msg or "quota" in err_msg:
+            for fallback_id in FALLBACK_MODELS:
+                try:
+                    fallback_model = genai.GenerativeModel(
+                        model_name=fallback_id,
+                        system_instruction=SYSTEM_INSTRUCTION,
+                    )
+                    res = await fallback_model.generate_content_async(prompt)
+                    if res.text:
+                        return res.text
+                except Exception:
+                    continue
+        return f"❌ Xatolik yuz berdi: {err_msg}"
 
 
 async def generate_image(prompt: str) -> str | None:
@@ -199,12 +215,26 @@ async def _generate_image_pollinations(prompt: str) -> str | None:
 
 
 async def analyze_with_context(user_id: int, message: str, context: str) -> str:
-    """Kontekst bilan javob berish (eslatmalar va hokazo)"""
+    """Kontekst bilan javob berish (eslatmalar va hokazo, kvota fallback bilan)"""
+    time_ctx = _format_time_context()
+    full_message = f"{time_ctx}\n[Foydalanuvchi konteksti: {context}]\n\nFoydalanuvchi: {message}"
+
     try:
         chat = get_chat(user_id)
-        time_ctx = _format_time_context()
-        full_message = f"{time_ctx}\n[Foydalanuvchi konteksti: {context}]\n\nFoydalanuvchi: {message}"
         response = await chat.send_message_async(full_message)
         return response.text
     except Exception as e:
-        return f"❌ Xatolik: {str(e)}"
+        err_msg = str(e)
+        if "429" in err_msg or "Quota" in err_msg or "quota" in err_msg:
+            for fallback_id in FALLBACK_MODELS:
+                try:
+                    fallback_model = genai.GenerativeModel(
+                        model_name=fallback_id,
+                        system_instruction=SYSTEM_INSTRUCTION,
+                    )
+                    res = await fallback_model.generate_content_async(full_message)
+                    if res.text:
+                        return res.text
+                except Exception:
+                    continue
+        return f"❌ Xatolik: {err_msg}"

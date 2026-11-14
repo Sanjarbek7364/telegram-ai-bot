@@ -160,42 +160,52 @@ async def handle_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 def _parse_alarm_request(message: str) -> tuple[datetime, str] | None:
-    """Xabardan budilnik vaqtini ajratib olish"""
-    msg = message.lower()
+    """Xabardan budilnik/eslatma vaqtini ajratib olish"""
+    msg = message.lower().strip()
     now = get_now()
 
-    # "ertaga soat 3 ga uyg'ot" / "ertaga 3:00 da uyg'ot"
-    match = re.search(
-        r"(ertaga|bugun)?\s*(?:soat\s*)?(\d{1,2})(?::(\d{2}))?\s*(?:ga|da)?\s*"
-        r"(uyg['\u2019]?ot|turg['\u2019]?iz|ogohlantir|eslatib\s*qo['\u2019]?y|budilnik)",
-        msg,
-    )
+    time_keywords = r"(?:uyg['\u2019]?ot|eslat(?:ib\s*qo['\u2019]?y)?|turg['\u2019]?iz|ogohlantir|budilnik)"
+
+    # 1. Format: "meni bugun 22 00 da eslat magazinga chiqishm kerak"
+    pattern1 = rf"(bugun|ertaga)?\s*(?:soat\s*)?(\d{{1,2}})(?:[:\s\.](\d{{2}}))?\s*(?:ga|da|da\s*ham)?\s*{time_keywords}(?:gin|gil)?\b(.*)"
+    match = re.search(pattern1, msg)
+
     if not match:
-        # Teskari tartib: "uyg'ot 3 da"
-        match = re.search(
-            r"(uyg['\u2019]?ot|turg['\u2019]?iz|ogohlantir|budilnik)\w*\s*"
-            r"(?:ertaga|bugun)?\s*(?:soat\s*)?(\d{1,2})(?::(\d{2}))?\s*(?:ga|da)?",
-            msg,
-        )
+        # 2. Format: "eslat 22:00 da magazinga chiqishim kerak"
+        pattern2 = rf"{time_keywords}\w*\s*(bugun|ertaga)?\s*(?:soat\s*)?(\d{{1,2}})(?:[:\s\.](\d{{2}}))?\s*(?:ga|da)?\b(.*)"
+        match = re.search(pattern2, msg)
         if match:
-            # Guruhlarni qayta tartiblash
+            is_tomorrow = match.group(1) == "ertaga" if match.group(1) else False
             hour = int(match.group(2))
             minute = int(match.group(3)) if match.group(3) else 0
-            is_tomorrow = "ertaga" in msg
+            extra_text = match.group(4).strip() if match.group(4) else ""
         else:
             return None
     else:
         is_tomorrow = match.group(1) == "ertaga" if match.group(1) else False
         hour = int(match.group(2))
         minute = int(match.group(3)) if match.group(3) else 0
+        extra_text = match.group(4).strip() if match.group(4) else ""
 
-    # Vaqtni hisoblash
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
-    if is_tomorrow or target <= now:
+    if is_tomorrow:
         target += timedelta(days=1)
+    elif target <= now:
+        if (now - target).total_seconds() > 60:
+            target += timedelta(days=1)
+            is_tomorrow = True
 
-    description = f"⏰ Budilnik: {target.strftime('%H:%M')} ({('ertaga' if is_tomorrow else 'bugun')})"
+    day_str = "ertaga" if is_tomorrow else "bugun"
+    desc_clean = re.sub(r"^(?:meni|menga|meni\s*ham)\s*", "", extra_text, flags=re.IGNORECASE).strip()
+    if desc_clean:
+        description = f"⏰ Eslatma ({day_str} {target.strftime('%H:%M')}): {desc_clean}"
+    else:
+        description = f"⏰ Budilnik ({day_str} {target.strftime('%H:%M')})"
+
     return target, description
 
 
@@ -219,7 +229,7 @@ async def _set_alarm(
     context.job_queue.run_once(
         _alarm_callback,
         when=delay,
-        data={"chat_id": chat_id, "user_id": user_id},
+        data={"chat_id": chat_id, "user_id": user_id, "description": description},
         name=f"alarm_once_{user_id}_{int(target_time.timestamp())}",
     )
 
@@ -228,19 +238,20 @@ async def _set_alarm(
     await update.message.reply_text(
         f"✅ {description}\n"
         f"⏳ {hours_left} soat {mins_left} daqiqa qoldi\n\n"
-        f"💡 Uyg'onganingizda \"turdim\" deb yozing — to'xtaydi."
+        f"💡 Vaqt bo'lganda ogohlantiraman, to'xtatish uchun \"turdim\" deb yozasiz! 😊"
     )
 
 
 async def _alarm_callback(context: ContextTypes.DEFAULT_TYPE):
-    """Budilnik ishlashi — turguncha xabar yozadi"""
+    """Budilnik/eslatma ishlashi — turguncha xabar yozadi"""
     data = context.job.data
     chat_id = data["chat_id"]
     user_id = data["user_id"]
+    desc = data.get("description", "Vaqt bo'ldi!")
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text="⏰🔔 UYҒONING! Budilnik ishlayapti!\n\nTo'xtatish uchun \"turdim\" deb yozing!",
+        text=f"⏰🔔 {desc}\n\nTo'xtatish uchun \"turdim\" deb yozing!",
     )
 
     # Har 30 soniyada takroriy xabar
@@ -248,7 +259,7 @@ async def _alarm_callback(context: ContextTypes.DEFAULT_TYPE):
         _repeating_alarm,
         interval=30,
         first=30,
-        data={"chat_id": chat_id, "user_id": user_id, "count": 0},
+        data={"chat_id": chat_id, "user_id": user_id, "description": desc, "count": 0},
         name=f"alert_{user_id}",
     )
 
@@ -268,5 +279,8 @@ async def _repeating_alarm(context: ContextTypes.DEFAULT_TYPE):
         "🔔 Hoy! Turing! 'turdim' deb yozing!",
         "⏰ Budilnik hali ham ishlayapti! TURING! 💪",
     ]
+    desc = data.get("description", "")
     msg = messages[count % len(messages)]
+    if desc:
+        msg = f"{msg}\n\n📌 {desc}"
     await context.bot.send_message(chat_id=chat_id, text=msg)
