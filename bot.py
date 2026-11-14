@@ -120,6 +120,20 @@ async def post_init(application: Application):
         except Exception as e:
             logger.warning(f"Web server xatolik: {e}")
 
+    # 24/7 Render serveri uxlab qolmasligi uchun (har 10 daqiqada doimiy self-ping)
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "https://telegram-ai-bot-3kr1.onrender.com")
+    async def _keep_alive(context):
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as s:
+                async with s.get(render_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    logger.info(f"🔄 24/7 Anti-sleep ping: {resp.status}")
+        except Exception as e:
+            logger.debug(f"Keep-alive ping: {e}")
+
+    application.job_queue.run_repeating(_keep_alive, interval=600, first=120, name="render_keep_alive")
+    logger.info("✅ 24/7 Anti-sleep tizimi ishga tushirildi.")
+
 
 def main():
     """Botni ishga tushirish"""
