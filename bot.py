@@ -101,6 +101,25 @@ async def post_init(application: Application):
     await setup_prayer_schedule(application)
     logger.info("✅ Namoz schedule o'rnatildi.")
 
+    # Agar hosting server PORT bersa (Render / Koyeb / Railway), 24/7 web serverni ishga tushirish
+    import os
+    port = os.getenv("PORT")
+    if port:
+        try:
+            from aiohttp import web
+            web_app = web.Application()
+            async def health_check(request):
+                return web.Response(text="Bot is running 24/7! 🚀")
+            web_app.router.add_get("/", health_check)
+            web_app.router.add_get("/health", health_check)
+            runner = web.AppRunner(web_app)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", int(port))
+            await site.start()
+            logger.info(f"✅ Web server {port}-portda ishga tushdi (24/7 server uchun).")
+        except Exception as e:
+            logger.warning(f"Web server xatolik: {e}")
+
 
 def main():
     """Botni ishga tushirish"""
