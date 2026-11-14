@@ -2,7 +2,7 @@
 Gemini AI xizmati — chatbot va rasm generatsiya
 """
 import google.generativeai as genai
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, get_now
 
 # Gemini sozlash
 genai.configure(api_key=GEMINI_API_KEY)
@@ -70,6 +70,7 @@ SYSTEM_INSTRUCTION = (
     "Sen Sanjarbek Xabibullayevning shaxsiy Telegram AI yordamchisisan. "
     "O'zbek tilida, Andijoncha ohangda, sodda va samimiy gaplash. "
     "MUHIM TALAB: Har qanday xabarga javob berganda albatta turli xil, mos va boy emojilardan (😊, 🚀, ⚡, 🔥, ✨, 💡, 🕌, ⏰, 🤖, 👍 va h.k.) ko'p foydalan! Har bir javobing chiroyli emojilar bilan to'la bo'lsin. "
+    "VAQT VA SOAT: Sen O'zbekiston (Farg'ona / Andijon) vaqtini doim aniq bilasan. Har bir xabar boshida senga hozirgi aniq vaqt va sana yuboriladi. Agar foydalanuvchi soat nechi, vaqt qancha, yoki sana haqida so'rasa, shu berilgan aniq vaqtni ayt! Hech qachon 'vaqtni bilmayman' dema! "
     "Savolarga qisqa, aniq va foydali javob ber. "
     "Foydalanuvchi boshqa tilda yozsa, o'sha tilda javob ber. "
     "Agar biror narsani eslatishni so'rasa, 'eslatma saqladim' de. "
@@ -129,11 +130,24 @@ def get_chat(user_id: int) -> genai.ChatSession:
     return user_chats[user_id]
 
 
+def _format_time_context() -> str:
+    """O'zbekiston bo'yicha aniq hozirgi vaqt va sana matni"""
+    now = get_now()
+    days = {
+        0: "Dushanba", 1: "Seshanba", 2: "Chorshanba",
+        3: "Payshanba", 4: "Juma", 5: "Shanba", 6: "Yakshanba"
+    }
+    day_name = days.get(now.weekday(), "")
+    return f"[Hozirgi vaqt: {now.strftime('%H:%M:%S')}, Sana: {now.strftime('%d.%m.%Y')}, {day_name} (O'zbekiston/Farg'ona)]"
+
+
 async def generate_response(user_id: int, message: str) -> str:
     """Gemini'dan javob olish"""
     try:
         chat = get_chat(user_id)
-        response = await chat.send_message_async(message)
+        time_ctx = _format_time_context()
+        prompt = f"{time_ctx}\nFoydalanuvchi: {message}"
+        response = await chat.send_message_async(prompt)
         return response.text
     except Exception as e:
         return f"❌ Xatolik yuz berdi: {str(e)}"
@@ -188,7 +202,8 @@ async def analyze_with_context(user_id: int, message: str, context: str) -> str:
     """Kontekst bilan javob berish (eslatmalar va hokazo)"""
     try:
         chat = get_chat(user_id)
-        full_message = f"[Foydalanuvchi konteksti: {context}]\n\n{message}"
+        time_ctx = _format_time_context()
+        full_message = f"{time_ctx}\n[Foydalanuvchi konteksti: {context}]\n\nFoydalanuvchi: {message}"
         response = await chat.send_message_async(full_message)
         return response.text
     except Exception as e:

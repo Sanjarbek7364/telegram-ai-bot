@@ -1,7 +1,16 @@
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# O'zbekiston (Farg'ona) vaqt zonasi
+UZB_TZ = ZoneInfo("Asia/Tashkent")
+
+def get_now() -> datetime:
+    """O'zbekiston bo'yicha aniq hozirgi vaqt"""
+    return datetime.now(UZB_TZ)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")

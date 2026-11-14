@@ -9,7 +9,7 @@ from services.prayer_service import get_formatted_prayer_times, get_prayer_sched
 from services.memory_service import (
     ensure_user, set_prayer_notify, get_prayer_notify, get_prayer_subscribers
 )
-from config import ALERT_INTERVAL_SECONDS
+from config import ALERT_INTERVAL_SECONDS, get_now, UZB_TZ
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +60,11 @@ async def setup_prayer_schedule(app):
     except Exception as e:
         logger.error(f"Namoz schedule xatolik: {e}")
 
-    # Har kuni yarim tunda ertangi schedule'ni yangilash
+    # Har kuni yarim tunda ertangi schedule'ni yangilash (O'zbekiston vaqti bilan 00:05 da)
     try:
         app.job_queue.run_daily(
             _daily_prayer_reschedule,
-            time=dt_time(0, 5, 0),  # 00:05 da
+            time=dt_time(0, 5, 0, tzinfo=UZB_TZ),
             name="daily_prayer_reschedule",
         )
     except AttributeError:
@@ -78,7 +78,7 @@ async def _schedule_today_prayers(context_or_app, user_id: int, chat_id: int):
     if not schedule:
         return
 
-    now = datetime.now()
+    now = get_now()
 
     # Avvalgi joblarni tozalash
     try:

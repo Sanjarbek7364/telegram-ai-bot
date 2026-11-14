@@ -4,6 +4,7 @@ Budilnik handler — /alarm buyrug'i
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes
+from config import get_now
 
 
 async def handle_alarm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -32,7 +33,7 @@ async def handle_alarm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    now = datetime.now()
+    now = get_now()
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
     # Agar vaqt o'tgan bo'lsa, ertaga

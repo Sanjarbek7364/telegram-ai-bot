@@ -3,13 +3,13 @@ Namoz vaqtlari xizmati — AlAdhan API
 """
 import aiohttp
 from datetime import datetime, timedelta
-from config import LATITUDE, LONGITUDE, PRAYER_NAMES, TAHAJJUD_MINUTES_BEFORE_FAJR
+from config import LATITUDE, LONGITUDE, PRAYER_NAMES, TAHAJJUD_MINUTES_BEFORE_FAJR, get_now
 
 
 async def get_prayer_times(date: datetime | None = None) -> dict | None:
     """Bugungi namoz vaqtlarini olish"""
     if date is None:
-        date = datetime.now()
+        date = get_now()
 
     date_str = date.strftime("%d-%m-%Y")
     url = (
@@ -35,7 +35,7 @@ async def get_formatted_prayer_times() -> str:
     if not timings:
         return "❌ Namoz vaqtlarini olishda xatolik yuz berdi."
 
-    today = datetime.now().strftime("%d.%m.%Y")
+    today = get_now().strftime("%d.%m.%Y")
     lines = [f"🕌 *Farg'ona — {today}*\n"]
 
     for eng_name, uz_name in PRAYER_NAMES.items():
@@ -55,7 +55,7 @@ async def get_formatted_prayer_times() -> str:
             pass
 
     # Keyingi namozni aniqlash
-    now = datetime.now()
+    now = get_now()
     next_prayer = _get_next_prayer(timings, now)
     if next_prayer:
         name, time_left = next_prayer

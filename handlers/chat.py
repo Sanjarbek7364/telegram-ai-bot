@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+from config import get_now
 from services.gemini_service import (
     generate_response, analyze_with_context, AVAILABLE_MODELS, get_user_mode, set_user_mode
 )
@@ -42,6 +43,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         content = memory_match.group(1).strip()
         await add_memory(user_id, content)
         await update.message.reply_text(f"✅ Eslatma saqlandi: {content}")
+        return
+
+    # Soat va vaqt so'rovi tekshirish ("soat nechi bo'ldi", "vaqt qancha", va h.k.)
+    if re.search(r"\b(soat|vaqt)\b.*\b(nech[iay]|qancha|bo['\u2019]?ldi)\b|\b(nech[iay]|qancha)\b.*\b(soat|vaqt)\b", message, re.IGNORECASE):
+        now = get_now()
+        days = {
+            0: "Dushanba", 1: "Seshanba", 2: "Chorshanba",
+            3: "Payshanba", 4: "Juma", 5: "Shanba", 6: "Yakshanba"
+        }
+        day_name = days.get(now.weekday(), "")
+        time_text = (
+            f"⏰ Hozir O'zbekiston (Farg'ona / Andijon) vaqti bilan:\n\n"
+            f"🕐 Soat: *{now.strftime('%H:%M:%S')}*\n"
+            f"📅 Sana: *{now.strftime('%d.%m.%Y')}* ({day_name})\n\n"
+            f"✨ Barcha namoz va budilniklaringiz aynan shu aniq vaqt bo'yicha hisoblanadi! 🤲"
+        )
+        await update.message.reply_text(time_text, parse_mode="Markdown")
         return
 
     # "Typing..." ko'rsatish
@@ -144,7 +162,7 @@ async def handle_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 def _parse_alarm_request(message: str) -> tuple[datetime, str] | None:
     """Xabardan budilnik vaqtini ajratib olish"""
     msg = message.lower()
-    now = datetime.now()
+    now = get_now()
 
     # "ertaga soat 3 ga uyg'ot" / "ertaga 3:00 da uyg'ot"
     match = re.search(
@@ -190,7 +208,7 @@ async def _set_alarm(
     """Budilnik o'rnatish"""
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    now = datetime.now()
+    now = get_now()
     delay = (target_time - now).total_seconds()
 
     if delay <= 0:
