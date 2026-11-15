@@ -53,12 +53,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             3: "Payshanba", 4: "Juma", 5: "Shanba", 6: "Yakshanba"
         }
         day_name = days.get(now.weekday(), "")
-        time_text = (
-            f"⏰ Hozir O'zbekiston (Farg'ona / Andijon) vaqti bilan:\n\n"
-            f"🕐 Soat: *{now.strftime('%H:%M:%S')}*\n"
-            f"📅 Sana: *{now.strftime('%d.%m.%Y')}* ({day_name})\n\n"
-            f"✨ Barcha namoz va budilniklaringiz aynan shu aniq vaqt bo'yicha hisoblanadi! 🤲"
-        )
+        time_text = f"⏰ Soat: *{now.strftime('%H:%M')}* ({day_name}, {now.strftime('%d.%m.%Y')})"
         await update.message.reply_text(time_text, parse_mode="Markdown")
         return
 
@@ -236,9 +231,8 @@ async def _set_alarm(
     hours_left = int(delay // 3600)
     mins_left = int((delay % 3600) // 60)
     await update.message.reply_text(
-        f"✅ {description}\n"
-        f"⏳ {hours_left} soat {mins_left} daqiqa qoldi\n\n"
-        f"💡 Vaqt bo'lganda ogohlantiraman, to'xtatish uchun \"turdim\" deb yozasiz! 😊"
+        f"✅ {description} ({hours_left}s {mins_left}d qoldi)\n"
+        f"Uyg'onganda \"turdim\" deb yozasiz! ⏰"
     )
 
 

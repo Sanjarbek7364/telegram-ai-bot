@@ -1,52 +1,12 @@
 """
 Gemini AI xizmati — chatbot va rasm generatsiya
 """
+import re
 import google.generativeai as genai
 from config import GEMINI_API_KEY, get_now
 
 # Gemini sozlash
 genai.configure(api_key=GEMINI_API_KEY)
-
-# Tez javob uchun Flash model
-OWNER_PROFILE = """
-MENING EGAM HAQIDA (MAXFIY — faqat egam bilan suhbatda ishlat):
-- Ismi: Sanjarbek Xabibullayev. Sanjarbek yoki Sanjik deb murojaat qil.
-- 2007-yilda tug'ilgan, Andijonlik, 2-kurs talaba.
-- O'zbek tilida gaplash. Iloji bo'lsa Andijoncha ohangda, sodda va samimiy yoz.
-- AI va texnologiyalarga qiziqadi.
-
-ISHLASH QOIDALARI:
-- Aldama. Bilmasang ochiq ayt.
-- Savolga aniq javob ber, keraksiz uzun kirish qilma.
-- Tushunish qiyin bo'lsa, mayda bosqichlarga bo'l, sodda misollar bilan tushuntir.
-- Kod yoki topshiriq so'rasa, tayyor nusxa ko'chirib ishlatadigan shaklda ber.
-- Tushunmayotganini aytsa, boshqa usulda yanada sodda tushuntir.
-- Oddiy topshiriqlarni ortiqcha savol bermasdan bajar.
-
-QIZIQISHLARI:
-- Python, Telegram bot, SQL, C++, algoritmlar, PyCharm
-- Elektronika: rezistor, kondensator, tranzistor, LED, sxemalar
-- Fizika, matematika, tarmoqlar, VLAN
-- Unity, Delphi/RAD Studio, Excel
-- Ingliz tili (A2-B1)
-- Instagram, Reels, kontent yaratish
-
-LOYIHALARI:
-- Telegram bot yasash (hozirgi loyiha)
-- Kitob/darslik ilovasi g'oyasi bor
-- Elektronika sxemalar: suv sathi signalizatori, tungi chiroq, svetofor
-
-VIDEO VA IJODIY ISHLAR:
-- Google Flow, CapCut Pro, Gemini ishlatadi
-- 9:16 vertikal format yoqtiradi
-- Multfilm uslubi: iliq, 3D ertaknamo ko'rinish
-- Qahramonlar yuzi, kiyimi kadrlar orasida o'zgarmasin
-- Dialog ruxsatsiz o'zgartirilmasin
-
-MAXFIYLIK QOIDASI:
-- Shaxsiy profilni faqat suhbat "asa" so'zi bilan boshlanganda tanib ishlat.
-- "asa" bilan boshlanmagan bo'lsa, ismini yoki shaxsiy ma'lumotlarini oshkor qilma.
-"""
 
 AVAILABLE_MODELS = {
     "flash": {
@@ -68,41 +28,35 @@ AVAILABLE_MODELS = {
 
 FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-4-hydrogen", "gemini-3.5-flash-lite"]
 
-SYSTEM_INSTRUCTION = (
-    "Sen Sanjarbek Xabibullayevning shaxsiy Telegram AI yordamchisisan. "
-    "O'zbek tilida, Andijoncha ohangda, sodda, samimiy va do'stona gaplash. "
-    "ENG ASOSIY TALAB — QISQALIK: Javoblaring JUDA QISQA, LO'NDA VA ANIQ bo'lsin! Odatda 1-2 gapdan oshmasin. Hech qachon keraksiz cho'zma, uzun kirish yoki xulosalar qilma! "
-    "Faqat so'ralgan narsaga to'g'ridan-to'g'ri javob ber. O'zingdan qo'shimcha gaplarni, takliflarni yoki eslatmalarni (kod yozamizmi, soat nechi bo'ldi deb) aralashtirma! "
-    "Agar foydalanuvchi 'salom' yoki 'nima gap' deb yozsa — bor-yo'g'i 1 qator do'stona va samimiy javob qaytar (masalan: 'Tinchlik, alhamdulillah! O'zingizda nima gaplar, Sanjik? 😊'). "
-    "Agar aniq savol bersa — to'g'ri va qisqa javob ber. "
-    "Javoblaringda 1-2 ta mos emoji ishlat (😊, 👍, ⚡). "
-    "Vaqt faqat foydalanuvchi soat yoki vaqt haqida so'ragandagina aytilsin. So'ramasa aytma! "
-    "Foydalanuvchi boshqa tilda yozsa, o'sha tilda qisqa javob ber.\n\n"
-    + OWNER_PROFILE
-)
-
-# Model nusxalarini keshda saqlash
-_model_instances: dict[str, genai.GenerativeModel] = {}
-
-
-def get_model_instance(mode_key: str) -> genai.GenerativeModel:
-    """Belgilangan rejimdagi GenerativeModel ni olish"""
-    if mode_key not in AVAILABLE_MODELS:
-        mode_key = "flash"
-    if mode_key not in _model_instances:
-        model_id = AVAILABLE_MODELS[mode_key]["id"]
-        _model_instances[mode_key] = genai.GenerativeModel(
-            model_name=model_id,
-            system_instruction=SYSTEM_INSTRUCTION,
-        )
-    return _model_instances[mode_key]
-
-
 # Foydalanuvchilarning tanlagan rejimi (default: flash)
 user_modes: dict[int, str] = {}
 
-# Har bir foydalanuvchi uchun chat tarixi (user_id -> ChatSession)
-user_chats: dict[int, genai.ChatSession] = {}
+# Qisqa suhbat tarixi (user_id -> list of history dicts)
+user_histories: dict[int, list[dict]] = {}
+MAX_HISTORY_TURNS = 2
+
+# Standart qat'iy tizim yo'riqnomasi — JUDA QISQA VA LO'NDA JAVOBLAR
+GENERAL_SYSTEM_INSTRUCTION = (
+    "Sen aqlli, chaqqon va odobli shaxsiy Telegram AI yordamchisisan. "
+    "O'zbek tilida gaplash. "
+    "ENG ASOSIY TALAB — JAVOBLAR JUDA QISQA VA LO'NDA BO'LSIN: "
+    "1. Foydalanuvchi uzun matnlarni o'qishni aslo yoqtirmaydi ('o'qish zerikarli'). "
+    "Javobing 1 yoki uzog'i bilan 2 qisqa gapdan oshmasin! "
+    "2. Foydalanuvchi nima so'rasa, FAQAT o'sha savolga to'g'ri va qisqa javob ber. "
+    "3. Hech qachon o'zingdan ortiqcha mavzularni (kod yozamizmi, sxema chizamizmi, fizika yechamizmi, vaqtni bilasizmi) tiqishtirma yoki taklif qilma! "
+    "4. 'salom', 'alyo', 'nima gap', 'qale' kabi so'zlarga bor-yo'g'i 1 qisqa samimiy gap bilan javob ber "
+    "(masalan: 'Tinchlik, alhamdulillah! Qanday yordam kerak? 😊' yoki 'Eshityapman, aloqadaman! 😊'). "
+    "5. Hech qachon ro'yxatlar tuzma, faqat foydalanuvchi 'batafsil ro'yxat ber' deb so'rasagina yoz. "
+    "6. 1-2 ta mos emoji ishlat."
+)
+
+# Shaxsiy profil (Faqat xabar aynan 'asa' so'zi bilan boshlanganda ishlatiladi)
+OWNER_PROFILE_INSTRUCTION = (
+    "Foydalanuvchi sening egang — Sanjarbek Xabibullayev (Sanjik). "
+    "2007-yilda tug'ilgan, Andijonlik, 2-kurs talaba. "
+    "Andijoncha samimiy, do'stona gaplash, lekin BARIBIR JUDA QISQA (1-2 gap) javob ber! "
+    "O'zingdan hech qachon mavzular tiqishtirma, faqat Sanjarbek o'zi so'raganiga lo'nda javob qaytar."
+)
 
 
 def get_user_mode(user_id: int) -> str:
@@ -114,42 +68,56 @@ def set_user_mode(user_id: int, mode_key: str) -> bool:
     """Foydalanuvchi rejimini o'zgartirish"""
     if mode_key in AVAILABLE_MODELS:
         user_modes[user_id] = mode_key
-        # Model o'zgarganda yangi sessiya ochish
-        if user_id in user_chats:
-            del user_chats[user_id]
+        if user_id in user_histories:
+            del user_histories[user_id]
         return True
     return False
 
 
-def get_chat(user_id: int) -> genai.ChatSession:
-    """Foydalanuvchi uchun chat sessiyasini olish yoki yaratish"""
-    mode_key = get_user_mode(user_id)
-    if user_id not in user_chats:
-        model = get_model_instance(mode_key)
-        user_chats[user_id] = model.start_chat(history=[])
-    return user_chats[user_id]
-
-
-def _format_time_context() -> str:
-    """O'zbekiston bo'yicha aniq hozirgi vaqt va sana matni"""
-    now = get_now()
-    days = {
-        0: "Dushanba", 1: "Seshanba", 2: "Chorshanba",
-        3: "Payshanba", 4: "Juma", 5: "Shanba", 6: "Yakshanba"
-    }
-    day_name = days.get(now.weekday(), "")
-    return f"[Tizim: Hozirgi vaqt: {now.strftime('%H:%M:%S')}, Sana: {now.strftime('%d.%m.%Y')} ({day_name}). QOIDALAR: Faqat vaqt so'ralgandagina soatni ayt, boshqa payt soatni yozma! Javobing qisqa, 1-2 gapdan oshmasin!]"
+def _build_model(mode_key: str, is_owner: bool) -> genai.GenerativeModel:
+    """Model instansiyasini yaratish"""
+    if mode_key not in AVAILABLE_MODELS:
+        mode_key = "flash"
+    model_id = AVAILABLE_MODELS[mode_key]["id"]
+    sys_instruction = (
+        f"{GENERAL_SYSTEM_INSTRUCTION}\n\n{OWNER_PROFILE_INSTRUCTION}"
+        if is_owner
+        else GENERAL_SYSTEM_INSTRUCTION
+    )
+    return genai.GenerativeModel(
+        model_name=model_id,
+        system_instruction=sys_instruction,
+    )
 
 
 async def generate_response(user_id: int, message: str) -> str:
-    """Gemini'dan javob olish (avtomatik kvota fallback bilan)"""
-    time_ctx = _format_time_context()
-    prompt = f"{time_ctx}\nFoydalanuvchi: {message}"
+    """Gemini'dan qisqa va lo'nda javob olish"""
+    msg_clean = message.strip()
+
+    # Maxfiylik qoidasi: 'asa' bilan boshlanganini tekshirish
+    is_owner = False
+    if msg_clean.lower().startswith("asa"):
+        is_owner = True
+        msg_clean = re.sub(r"^asa[\s,.:!?-]*", "", msg_clean, flags=re.IGNORECASE).strip()
+        if not msg_clean:
+            return "Eshityapman Sanjik, tinchlikmi? Qanday yordam beray? 😊"
+
+    mode_key = get_user_mode(user_id)
+    model = _build_model(mode_key, is_owner)
+
+    history = user_histories.get(user_id, [])
+    recent_history = history[-MAX_HISTORY_TURNS * 2 :]
 
     try:
-        chat = get_chat(user_id)
-        response = await chat.send_message_async(prompt)
-        return response.text
+        chat = model.start_chat(history=recent_history)
+        response = await chat.send_message_async(msg_clean)
+        ans = response.text.strip()
+
+        recent_history.append({"role": "user", "parts": [msg_clean]})
+        recent_history.append({"role": "model", "parts": [ans]})
+        user_histories[user_id] = recent_history[-MAX_HISTORY_TURNS * 2 :]
+
+        return ans
     except Exception as e:
         err_msg = str(e)
         if "429" in err_msg or "Quota" in err_msg or "quota" in err_msg:
@@ -157,14 +125,20 @@ async def generate_response(user_id: int, message: str) -> str:
                 try:
                     fallback_model = genai.GenerativeModel(
                         model_name=fallback_id,
-                        system_instruction=SYSTEM_INSTRUCTION,
+                        system_instruction=GENERAL_SYSTEM_INSTRUCTION,
                     )
-                    res = await fallback_model.generate_content_async(prompt)
+                    res = await fallback_model.generate_content_async(msg_clean)
                     if res.text:
-                        return res.text
+                        return res.text.strip()
                 except Exception:
                     continue
         return f"❌ Xatolik yuz berdi: {err_msg}"
+
+
+async def analyze_with_context(user_id: int, message: str, context: str) -> str:
+    """Eslatmalar konteksti bilan javob berish"""
+    prompt = f"[Eslatma konteksti: {context}]\n{message}"
+    return await generate_response(user_id, prompt)
 
 
 async def generate_image(prompt: str) -> str | None:
@@ -176,7 +150,6 @@ async def generate_image(prompt: str) -> str | None:
             number_of_images=1,
         )
         if result.images:
-            # Rasmni faylga saqlash
             import os
             os.makedirs("temp", exist_ok=True)
             path = f"temp/image_{hash(prompt) % 100000}.png"
@@ -184,7 +157,6 @@ async def generate_image(prompt: str) -> str | None:
             return path
         return None
     except Exception:
-        # Imagen mavjud bo'lmasa, Pollinations API orqali
         return await _generate_image_pollinations(prompt)
 
 
@@ -210,29 +182,3 @@ async def _generate_image_pollinations(prompt: str) -> str | None:
         return None
     except Exception:
         return None
-
-
-async def analyze_with_context(user_id: int, message: str, context: str) -> str:
-    """Kontekst bilan javob berish (eslatmalar va hokazo, kvota fallback bilan)"""
-    time_ctx = _format_time_context()
-    full_message = f"{time_ctx}\n[Foydalanuvchi konteksti: {context}]\n\nFoydalanuvchi: {message}"
-
-    try:
-        chat = get_chat(user_id)
-        response = await chat.send_message_async(full_message)
-        return response.text
-    except Exception as e:
-        err_msg = str(e)
-        if "429" in err_msg or "Quota" in err_msg or "quota" in err_msg:
-            for fallback_id in FALLBACK_MODELS:
-                try:
-                    fallback_model = genai.GenerativeModel(
-                        model_name=fallback_id,
-                        system_instruction=SYSTEM_INSTRUCTION,
-                    )
-                    res = await fallback_model.generate_content_async(full_message)
-                    if res.text:
-                        return res.text
-                except Exception:
-                    continue
-        return f"❌ Xatolik: {err_msg}"
