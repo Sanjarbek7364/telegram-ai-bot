@@ -1,0 +1,14 @@
+name: 24-7 Keep Alive
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Server
+        run: |
+          curl -s -i -m 50 https://telegram-ai-bot-3kr1.onrender.com || true
